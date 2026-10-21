@@ -1,0 +1,56 @@
+# Pipeline Sentinel en local : Postgres + Airflow.
+#
+#   cp .env.example .env      (puis remplacer les "change-me")
+#   docker compose up -d --build
+#   Airflow : http://localhost:8081  (identifiant "admin", mot de passe : voir README)
+#
+# Les secrets sont lus dans .env, jamais écrits ici.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?définir POSTGRES_USER dans .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: airflow # base interne d'Airflow ; la base "pipeline" est créée par init-db.sh
+      READONLY_PASSWORD: ${READONLY_PASSWORD:?définir READONLY_PASSWORD dans .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    ports:
+      - "127.0.0.1:5433:5432" # accessible seulement depuis ce poste (Grafana du bloc 2, psql)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  airflow:
+    build: .
+    image: sentinel-pipeline:local
+    command: standalone # planificateur, interface web et exécution des tâches dans un conteneur
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False" # le pipeline démarre tout seul
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
+      PIPELINE_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/pipeline
+      LANDING_DIR: /opt/airflow/data/landing
+      SENTINEL_API_URL: ${SENTINEL_API_URL:-}
+      SENTINEL_API_KEY: ${SENTINEL_API_KEY:-}
+      SIMULATION: ${SIMULATION:-true}
+    volumes:
+      - landing:/opt/airflow/data # fichiers déposés par les serveurs de jeu
+    ports:
+      - "8081:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # pour joindre l'API Sentinel du bloc 4
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  landing:
