@@ -54,12 +54,16 @@ def sentinel_pipeline():
 
         return run()
 
-    steps = [simuler_serveurs()] + [
-        etape(name)
-        for name in ["ingerer", "controler", "transformer", "envoyer", "surveiller", "purger"]
-    ]
-    for before, after in zip(steps, steps[1:]):
-        before >> after
+    # L'ordre d'exécution : chaque étape attend que la précédente ait réussi.
+    (
+        simuler_serveurs()
+        >> etape("ingerer")
+        >> etape("controler")
+        >> etape("transformer")
+        >> etape("envoyer")
+        >> etape("surveiller")
+        >> etape("purger")
+    )
 
 
 sentinel_pipeline()
