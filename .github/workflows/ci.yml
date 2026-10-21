@@ -1,0 +1,88 @@
+# Intégration continue du pipeline : à chaque modification, GitHub vérifie que tout marche.
+#   1. style (ruff) et tests (pytest) sur une vraie base Postgres ;
+#   2. construction de l'image Airflow et exécution complète du DAG une fois
+#      ("airflow dags test"), puis vérification que des fiches ont bien été chargées.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read # moindre privilège : lecture seule
+
+jobs:
+  tests:
+    name: Style et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: ci-only-password # base jetable, aucune donnée réelle
+          POSTGRES_DB: pipeline_test
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U sentinel" --health-interval 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://sentinel:ci-only-password@localhost:5432/pipeline_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Style (ruff)
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Tests (pytest)
+        run: pytest -v
+
+  airflow:
+    name: DAG Airflow de bout en bout
+    runs-on: ubuntu-latest
+    needs: tests
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: pipeline
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U sentinel" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Construire l'image Airflow
+        run: docker build -t sentinel-pipeline:ci .
+
+      - name: Exécuter le DAG une fois
+        run: |
+          docker run --rm --network host \
+            -e AIRFLOW__CORE__LOAD_EXAMPLES=False \
+            -e PIPELINE_DATABASE_URL=postgresql://sentinel:ci-only-password@localhost:5432/pipeline \
+            -e LANDING_DIR=/tmp/landing \
+            sentinel-pipeline:ci \
+            bash -c "airflow db migrate && airflow dags test sentinel_pipeline" > airflow.log 2>&1
+
+      - name: Vérifier que des fiches ont été chargées
+        env:
+          PGPASSWORD: ci-only-password
+        run: |
+          n=$(psql -h localhost -U sentinel -d pipeline -tAc "SELECT count(*) FROM pipeline.fiches")
+          echo "Fiches chargées : $n"
+          psql -h localhost -U sentinel -d pipeline -c "SELECT * FROM pipeline.executions"
+          test "$n" -gt 400
+
+      - name: Afficher la fin du journal Airflow en cas d'échec
+        if: failure()
+        run: |
+          tail -c 6000 airflow.log | python3 -c "import sys; t = sys.stdin.read(); print('::error title=Journal Airflow::' + t.replace('%', '%25').replace('\r', '').replace('\n', '%0A'))"
