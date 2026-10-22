@@ -5,6 +5,15 @@
 # - rôle "lecture_seule" : accès en lecture pour la supervision (Grafana, bloc 2),
 #   sans droit de modification (moindre privilège).
 set -e
+
+# Refus de démarrer avec un mot de passe par défaut (sécurité).
+for valeur in "$POSTGRES_PASSWORD" "$READONLY_PASSWORD"; do
+  if [ -z "$valeur" ] || [ "$valeur" = "change-me" ]; then
+    echo "ERREUR : remplacer les mots de passe 'change-me' du fichier .env" >&2
+    exit 1
+  fi
+done
+
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<SQL
 CREATE DATABASE pipeline;
 CREATE ROLE lecture_seule LOGIN PASSWORD '${READONLY_PASSWORD}';
