@@ -11,6 +11,7 @@ En ligne de commande :  python -m pipeline.simulation --events 500
 """
 
 import argparse
+import csv
 import json
 import random
 import uuid
@@ -67,8 +68,13 @@ def add_defect(event: dict, rng: random.Random) -> dict:
     return event
 
 
-def write_batch(n_events: int, seed: int | None = None, landing_dir: Path = LANDING_DIR) -> Path:
-    """Écrit un fichier JSON de ``n_events`` événements, comme un serveur de jeu."""
+def write_batch(
+    n_events: int, seed: int | None = None, landing_dir: Path = LANDING_DIR, fmt: str = "json"
+) -> Path:
+    """Écrit un fichier de ``n_events`` événements, comme un serveur de jeu.
+
+    ``fmt`` vaut "json" (serveurs récents) ou "csv" (anciens serveurs) : le pipeline lit les deux.
+    """
     rng = random.Random(seed)
     events = [make_event(rng) for _ in range(n_events)]
     events = [add_defect(e, rng) if rng.random() < DEFECT_RATE else e for e in events]
@@ -80,8 +86,16 @@ def write_batch(n_events: int, seed: int | None = None, landing_dir: Path = LAND
         "evenements": events,
     }
     landing_dir.mkdir(parents=True, exist_ok=True)
-    path = landing_dir / f"fin_de_match_{now:%Y%m%d_%H%M%S_%f}.json"
-    path.write_text(json.dumps(payload, ensure_ascii=False))
+    path = landing_dir / f"fin_de_match_{now:%Y%m%d_%H%M%S_%f}.{fmt}"
+    if fmt == "csv":
+        # Une ligne par événement ; un champ absent (événement abîmé) reste une cellule vide.
+        columns = list(dict.fromkeys(key for event in events for key in event))
+        with path.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=columns, restval="")
+            writer.writeheader()
+            writer.writerows(events)
+    else:
+        path.write_text(json.dumps(payload, ensure_ascii=False))
     return path
 
 
@@ -89,7 +103,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Simule un serveur de jeu qui envoie un fichier.")
     parser.add_argument("--events", type=int, default=500)
     parser.add_argument("--seed", type=int)
-    path = write_batch(parser.parse_args().events, parser.parse_args().seed)
+    parser.add_argument("--format", choices=["json", "csv"], default="json")
+    args = parser.parse_args()
+    path = write_batch(args.events, args.seed, fmt=args.format)
     print(f"Fichier déposé : {path}")
 
 

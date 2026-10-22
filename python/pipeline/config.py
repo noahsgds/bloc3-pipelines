@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]  # racine du dépôt
 SQL_DIR = ROOT / "sql"
 
-# Dossier où les serveurs de jeu déposent leurs fichiers JSON de fin de match.
+# Dossier où les serveurs de jeu déposent leurs fichiers de fin de match (JSON ou CSV).
 LANDING_DIR = Path(os.environ.get("LANDING_DIR", ROOT / "data" / "landing"))
 # Une fois traité, un fichier est déplacé ici (on ne supprime jamais un fichier non traité).
 PROCESSED_DIR = LANDING_DIR.parent / "traites"
@@ -22,6 +22,9 @@ SEND_BATCH_SIZE = 1_000  # maximum accepté par l'API Sentinel par requête
 
 # Seuil d'alerte : au-delà de 5 % de lignes rejetées, quelque chose ne va pas à la source.
 MAX_REJECT_RATE = 0.05
+# Seuil d'alerte : une exécution plus longue que 2 minutes risque de chevaucher la suivante
+# (une toutes les 5 minutes). Aujourd'hui, une journée entière passe en 5 secondes.
+MAX_RUN_SECONDS = 120
 
 # --- Contrat de données (identique au bloc 4) ---------------------------------------------
 NUMERIC_RANGES = {

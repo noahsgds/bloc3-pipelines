@@ -59,6 +59,17 @@ def test_pipeline_de_bout_en_bout(conn, landing):
     assert list(landing.glob("*.json")) == []  # fichier déplacé dans "traites"
 
 
+def test_un_fichier_csv_est_traite_comme_un_fichier_json(conn, landing):
+    write_batch(500, seed=11, landing_dir=landing, fmt="csv")
+    read = etapes.ingerer(conn, "r1", landing)
+    checked = etapes.controler(conn, "r1")
+    etapes.transformer(conn, "r1")
+    assert read["lignes"] == 505
+    assert checked["details"]["rejetees"] < 30  # seuls les événements abîmés sont rejetés
+    assert count(conn, "SELECT count(*) n FROM pipeline.fiches") > 400
+    assert list(landing.glob("*.csv")) == []  # fichier déplacé dans "traites"
+
+
 def test_minimisation_aucun_pseudo_ni_ip_stocke(conn, landing):
     write_batch(200, seed=2, landing_dir=landing)
     run_all(conn, "r1", landing)
@@ -143,6 +154,17 @@ def test_alerte_si_trop_de_lignes_rejetees(conn, landing, monkeypatch):
     result = etapes.run_step("surveiller", "r1", URL)
     assert result["details"]["taux_rejet"] == 1.0
     assert "rejetées" in conn.execute("SELECT message FROM pipeline.alertes").fetchone()["message"]
+
+
+def test_alerte_si_execution_trop_lente(conn, landing, monkeypatch):
+    monkeypatch.setattr(config, "LANDING_DIR", landing)
+    monkeypatch.setattr(config, "MAX_RUN_SECONDS", -1)  # tout dépassement déclenche l'alerte
+    write_batch(50, seed=12, landing_dir=landing)
+    etapes.run_step("ingerer", "r1", URL)
+    etapes.run_step("controler", "r1", URL)
+    etapes.run_step("surveiller", "r1", URL)
+    messages = [r["message"] for r in conn.execute("SELECT message FROM pipeline.alertes")]
+    assert any("Exécution lente" in m for m in messages)
 
 
 def test_mesures_enregistrees_pour_chaque_etape(conn, landing):

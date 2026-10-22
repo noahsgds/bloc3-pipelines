@@ -43,6 +43,10 @@ renvoyée.
 échoue, Airflow réessaie 3 fois. Les fiches restent marquées « non envoyées » et partent
 à la prochaine exécution. Rien n'est perdu (test `test_envoi_reprend_la_ou_il_s_est_arrete`).
 
+**Question probable** — *Et si un serveur envoie un autre format ?* Le pipeline lit le JSON
+(serveurs récents) et le CSV (anciens serveurs) : les deux sont convertis en événements
+identiques avant les contrôles. Un fichier mal formé est mis de côté avec une alerte.
+
 ## 4. Qualité des données — `python/pipeline/qualite.py`
 
 **Ce que c'est :** pour chaque ligne, une liste de vérifications : champs obligatoires,
@@ -61,7 +65,9 @@ sont abîmées : elles sont toutes rattrapées. »
   traitées, rejets, doublons. La vue `pipeline.executions` en fait une ligne par exécution.
 - La table `pipeline.alertes` reçoit les problèmes : fichier illisible, donnée personnelle
   inattendue, trop de rejets, étape en échec.
-- Grafana (bloc 2) affiche ces tables en graphiques.
+- Une alerte part aussi si une exécution dure plus de 2 minutes (risque de chevaucher la suivante).
+- Un rôle en lecture seule permet de brancher un outil de visualisation (comme le Grafana du
+  bloc 2) sur ces tables sans pouvoir les modifier.
 
 ## 6. RGPD
 
@@ -76,7 +82,7 @@ sont abîmées : elles sont toutes rattrapées. »
 
 ## 7. Tests et CI
 
-25 tests : règles de qualité, pipeline complet, absence de pseudo stocké, fichier illisible,
+28 tests : règles de qualité, pipeline complet, fichiers CSV, absence de pseudo stocké, fichier illisible,
 donnée personnelle inattendue, pas de doublon en relançant, reprise après panne, envoi qui
 reprend, alerte de rejet, purge, droits RGPD. La CI GitHub lance ces tests, puis exécute le
 DAG pour de vrai dans Airflow et vérifie que des fiches arrivent en base.
