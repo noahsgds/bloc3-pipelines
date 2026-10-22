@@ -121,7 +121,7 @@ marge de plus de 1 000 fois sa charge actuelle.
 | Droits des personnes | Accès et effacement par `pipeline.droits`, chaque demande enregistrée dans `pipeline.demandes_rgpd` |
 | Traçabilité | Chaque fiche garde son fichier d'origine, son exécution et sa date de chargement ; mesures et alertes horodatées |
 | Conservation | Bruts et quarantaine 30 jours, fiches 6 mois, mesures et alertes 12 mois, purge automatique |
-| Consentement | Non applicable : la base légale est le contrat et l'intérêt légitime (voir le RGPD du bloc 4) |
+| Consentement | Non applicable : la base légale est l'intérêt légitime (voir le plan de gouvernance du bloc 1 et le RGPD du bloc 4) |
 
 ## Choix techniques
 
