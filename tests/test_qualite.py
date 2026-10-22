@@ -64,3 +64,13 @@ def test_un_serveur_simule_depose_un_fichier_realiste(tmp_path):
     defects = [e for e in events if check_event(e)]
     assert 5 < len(defects) < 60  # environ 2 % d'événements abîmés
     assert all("pseudo" in e for e in events)  # le pipeline devra les retirer
+
+
+def test_un_serveur_peut_aussi_deposer_un_fichier_csv(tmp_path):
+    from pipeline.etapes import read_events
+
+    path = write_batch(200, seed=3, landing_dir=tmp_path, fmt="csv")
+    events = read_events(path)
+    assert path.suffix == ".csv" and len(events) == 202
+    valid = [e for e in events if not check_event(e)]
+    assert len(valid) > 180  # les types (nombres, booléens, vides) sont bien relus

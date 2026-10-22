@@ -9,6 +9,7 @@ Chaque étape :
 - renvoie le nombre de lignes traitées et des détails, enregistrés dans pipeline.mesures.
 """
 
+import csv
 import json
 import logging
 import shutil
@@ -28,7 +29,7 @@ log = logging.getLogger("sentinel.pipeline")
 
 
 def alert(conn, run_id: str, level: str, message: str) -> None:
-    """Enregistre une alerte (lue par Grafana, bloc 2) et l'écrit dans le journal."""
+    """Enregistre une alerte dans pipeline.alertes et l'écrit dans le journal d'Airflow."""
     conn.execute(
         "INSERT INTO pipeline.alertes (run_id, niveau, message) VALUES (%s, %s, %s)",
         (run_id, level, message),
@@ -48,8 +49,37 @@ def minimize(event) -> tuple[dict, set]:
     return kept, unexpected
 
 
+def _from_csv(value: str):
+    """Convertit une cellule CSV (toujours du texte) dans le bon type, comme en JSON."""
+    if value == "":
+        return None  # cellule vide = valeur absente
+    if value.lower() in ("true", "false"):
+        return value.lower() == "true"
+    for convert in (int, float):
+        try:
+            return convert(value)
+        except ValueError:
+            pass
+    return value
+
+
+def read_events(path: Path) -> list:
+    """Lit les événements d'un fichier JSON ({"evenements": [...]}) ou CSV.
+
+    En CSV, chaque ligne est un événement et la première ligne donne les noms des champs.
+    Un fichier mal formé lève une erreur : il sera mis de côté avec une alerte.
+    """
+    if path.suffix == ".csv":
+        with path.open(newline="", encoding="utf-8") as file:
+            return [{k: _from_csv(v) for k, v in row.items()} for row in csv.DictReader(file)]
+    events = json.loads(path.read_text())["evenements"]
+    if not isinstance(events, list):
+        raise ValueError("'evenements' n'est pas une liste")
+    return events
+
+
 def ingerer(conn, run_id: str, landing_dir: Path | None = None) -> dict:
-    """Lit les nouveaux fichiers JSON et copie leurs événements (minimisés) en base.
+    """Lit les nouveaux fichiers (JSON ou CSV) et copie leurs événements (minimisés) en base.
 
     Un fichier déjà enregistré n'est jamais relu (pas de doublon après une reprise).
     Un fichier illisible est mis de côté avec une alerte ; les autres continuent.
@@ -58,7 +88,8 @@ def ingerer(conn, run_id: str, landing_dir: Path | None = None) -> dict:
     processed_dir = landing_dir.parent / "traites"
     processed_dir.mkdir(parents=True, exist_ok=True)
     n_files = n_events = 0
-    for path in sorted(landing_dir.glob("*.json")):
+    files = sorted([*landing_dir.glob("*.json"), *landing_dir.glob("*.csv")], key=lambda p: p.name)
+    for path in files:
         known = conn.execute(
             "SELECT 1 FROM pipeline.fichiers WHERE nom = %s", (path.name,)
         ).fetchone()
@@ -66,10 +97,8 @@ def ingerer(conn, run_id: str, landing_dir: Path | None = None) -> dict:
             shutil.move(path, processed_dir / path.name)
             continue
         try:
-            events = json.loads(path.read_text())["evenements"]
-            if not isinstance(events, list):
-                raise ValueError("'evenements' n'est pas une liste")
-        except (ValueError, KeyError, TypeError) as error:
+            events = read_events(path)
+        except (ValueError, KeyError, TypeError, csv.Error, UnicodeDecodeError) as error:
             conn.execute(
                 "INSERT INTO pipeline.fichiers (nom, run_id, nb_evenements, statut) "
                 "VALUES (%s, %s, 0, 'illisible')",
@@ -209,9 +238,9 @@ def envoyer(conn, run_id: str, send=post_batch) -> dict:
 
 
 def surveiller(conn, run_id: str) -> dict:
-    """Calcule le taux de rejet de l'exécution et lève une alerte au-delà de 5 %."""
+    """Contrôle l'exécution : alerte si plus de 5 % de rejets ou si elle a été trop lente."""
     m = conn.execute(
-        "SELECT lignes_lues, lignes_valides, lignes_rejetees FROM pipeline.executions "
+        "SELECT lignes_lues, lignes_valides, lignes_rejetees, duree_s FROM pipeline.executions "
         "WHERE run_id = %s",
         (run_id,),
     ).fetchone()
@@ -221,8 +250,13 @@ def surveiller(conn, run_id: str) -> dict:
         alert(conn, run_id, "avertissement",
               f"{rate:.1%} de lignes rejetées (maximum {config.MAX_REJECT_RATE:.0%}) : "
               "vérifier les serveurs de jeu.")  # fmt: skip
+    duration = (m["duree_s"] or 0) if m else 0  # durée cumulée des étapes déjà passées
+    if duration > config.MAX_RUN_SECONDS:
+        alert(conn, run_id, "avertissement",
+              f"Exécution lente : {duration:.0f} s (maximum {config.MAX_RUN_SECONDS} s), "
+              "risque de chevauchement avec l'exécution suivante.")  # fmt: skip
     conn.commit()
-    return {"lignes": checked, "details": {"taux_rejet": round(rate, 4)}}
+    return {"lignes": checked, "details": {"taux_rejet": round(rate, 4), "duree_s": duration}}
 
 
 # --- 6. Purge RGPD ------------------------------------------------------------------------

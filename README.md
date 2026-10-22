@@ -24,11 +24,11 @@ flowchart LR
 
 | Étape | Ce qu'elle fait | En cas de problème |
 |---|---|---|
-| Ingestion | Lit les nouveaux fichiers, retire le pseudo et l'adresse IP, copie les événements en base avec leur origine (fichier, heure, exécution) | Fichier illisible : mis de côté, alerte, les autres continuent. Donnée personnelle inattendue (ex. e-mail) : supprimée, alerte « prévenir le DPO » |
+| Ingestion | Lit les nouveaux fichiers (JSON ou CSV), retire le pseudo et l'adresse IP, copie les événements en base avec leur origine (fichier, heure, exécution) | Fichier illisible : mis de côté, alerte, les autres continuent. Donnée personnelle inattendue (ex. e-mail) : supprimée, alerte « prévenir le DPO » |
 | Contrôles qualité | Vérifie chaque événement : champs obligatoires, identifiants, date, nombres et bornes, catégories | Événement invalide : quarantaine avec le motif en français, le reste continue |
 | Transformation | SQL : du JSON brut vers une table propre au format de Sentinel | Doublon (même joueur, même match) : chargé une seule fois |
 | Envoi | Envoie à `POST /predict` de l'API Sentinel les fiches pas encore transmises | API indisponible : nouvelle tentative automatique, seules les fiches manquantes sont renvoyées |
-| Surveillance | Calcule le taux de rejet de l'exécution | Plus de 5 % : alerte |
+| Surveillance | Calcule le taux de rejet et la durée de l'exécution | Plus de 5 % de rejets ou plus de 2 minutes : alerte |
 | Purge | Supprime les données au-delà de leur durée de conservation | — |
 
 **Reprise automatique après erreur.** Chaque étape reprend ce qui reste à faire, même si
@@ -43,7 +43,7 @@ est enregistrée.
 | `dags/` | `sentinel_pipeline.py` : l'ordre des étapes, le planning (5 min), les nouvelles tentatives |
 | `python/pipeline/` | `etapes.py` (les 6 étapes), `qualite.py` (règles de contrôle), `simulation.py` (serveurs de jeu simulés), `droits.py` (RGPD), `db.py`, `config.py` |
 | `sql/` | `schema.sql` (tables), `transformer.sql`, `purger.sql` |
-| `tests/` | 25 tests (pytest) : règles qualité, pipeline complet, reprise, envoi, alertes, purge, droits |
+| `tests/` | 28 tests (pytest) : règles qualité, pipeline complet, reprise, envoi, alertes, purge, droits |
 | `docker/` | Création de la base `pipeline` et du rôle en lecture seule |
 | `.github/workflows/` | CI : style, tests, puis exécution réelle du DAG dans Airflow |
 
@@ -75,7 +75,7 @@ simplement désactivé.
 
 | Commande | Effet |
 |---|---|
-| `docker compose exec airflow python -m pipeline.simulation --events 2000` | Un serveur simulé dépose un fichier |
+| `docker compose exec airflow python -m pipeline.simulation --events 2000` | Un serveur simulé dépose un fichier JSON (`--format csv` pour un fichier CSV) |
 | `docker compose exec airflow python -m pipeline.droits --acces <player_id>` | Droit d'accès RGPD |
 | `docker compose exec airflow python -m pipeline.droits --effacer <player_id>` | Droit à l'effacement RGPD |
 | `pytest -v` | Tests (base de test : variable `TEST_DATABASE_URL`) |
@@ -90,8 +90,8 @@ quelle étape a échoué et pourquoi. Les alertes sont aussi dans `pipeline.aler
 | Interface Airflow | État de chaque étape de chaque exécution, durées, journaux, nouvelles tentatives |
 | `pipeline.mesures` | Pour chaque étape : début, durée, lignes traitées, détails (rejets, doublons, taux de rejet) |
 | `pipeline.executions` | Vue de synthèse : une ligne par exécution (lues, valides, rejetées, chargées, envoyées, durée) |
-| `pipeline.alertes` | Fichier illisible, donnée personnelle inattendue, taux de rejet > 5 %, étape en échec |
-| Grafana (bloc 2) | Tableau de bord sur ces tables, avec le rôle `lecture_seule` |
+| `pipeline.alertes` | Fichier illisible, donnée personnelle inattendue, taux de rejet > 5 %, exécution de plus de 2 minutes, étape en échec |
+| Rôle `lecture_seule` | Permet de brancher un outil de visualisation (par exemple le Grafana du bloc 2) sur ces tables sans pouvoir les modifier |
 
 Ajouter une métrique = ajouter une clé dans les `details` renvoyés par une étape : elle est
 enregistrée automatiquement, sans changer les tables.
