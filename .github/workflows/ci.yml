@@ -69,7 +69,8 @@ jobs:
           docker run --rm --network host \
             -e AIRFLOW__CORE__LOAD_EXAMPLES=False \
             -e PIPELINE_DATABASE_URL=postgresql://sentinel:ci-only-password@localhost:5432/pipeline \
-            -e LANDING_DIR=/tmp/landing \
+            -e LANDING_DIR=/opt/airflow/data/landing \
+            -v landing:/opt/airflow/data \
             sentinel-pipeline:ci \
             bash -c "airflow db migrate && airflow dags test sentinel_pipeline" > airflow.log 2>&1
 
