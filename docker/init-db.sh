@@ -14,7 +14,8 @@ for valeur in "$POSTGRES_PASSWORD" "$READONLY_PASSWORD"; do
   fi
 done
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<SQL
+# --dbname : sans lui, psql cherche une base au nom de l'utilisateur, qui n'existe pas.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<SQL
 CREATE DATABASE pipeline;
 CREATE ROLE lecture_seule LOGIN PASSWORD '${READONLY_PASSWORD}';
 \c pipeline
