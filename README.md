@@ -8,6 +8,10 @@ range dans Postgres et les envoie à l'API Sentinel ([bloc 4](https://github.com
 > Projet réalisé pour la certification « Architecte en Intelligence Artificielle » (RNCP, niveau 7).
 > Toutes les données sont synthétiques.
 
+**Vidéo de démonstration (4 min) :** [le pipeline en exécution](https://www.loom.com/share/b64bfdb7c533424086fe55fc24cb254c)
+— dépôt d'un fichier, orchestration Airflow, minimisation, quarantaine, mesures et alertes,
+vérification par la CI.
+
 ## Comment ça marche
 
 ```mermaid
